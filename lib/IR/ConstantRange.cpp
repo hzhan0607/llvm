@@ -889,7 +889,7 @@ ConstantRange
 ConstantRange::lshr(const ConstantRange &Other) const {
   if (isEmptySet() || Other.isEmptySet())
     return ConstantRange(getBitWidth(), /*isFullSet=*/false);
-  
+
   APInt max = getUnsignedMax().lshr(Other.getUnsignedMin());
   APInt min = getUnsignedMin().lshr(Other.getUnsignedMax());
   if (min == max + 1)
@@ -904,6 +904,36 @@ ConstantRange ConstantRange::inverse() const {
   if (isEmptySet())
     return ConstantRange(getBitWidth(), /*isFullSet=*/true);
   return ConstantRange(Upper, Lower);
+}
+
+// Return false if we can prove that overflow does not occur. The
+// strategy is to do a wider version of the interval arithmetic and
+// then check if the result has an empty intersection with this
+// ConstantRange:
+//
+//                orig INT_MIN        orig INT_MAX
+//                     |                    |
+//                     v                    v
+// --------------------U                    L--------------------
+//
+bool ConstantRange::mayOverflow(const ConstantRange &L, const ConstantRange &R,
+                                ConstantRangeOp Op, bool Signed) {
+  const unsigned Width = L.getBitWidth();
+  APInt Max, Min;
+  ConstantRange LExt(1), RExt(1);
+  if (Signed) {
+    Max = APInt::getSignedMaxValue(Width).sext(2 * Width);
+    Min = APInt::getSignedMinValue(Width).sext(2 * Width);
+    LExt = L.signExtend(2 * Width);
+    RExt = R.signExtend(2 * Width);
+  } else {
+    Max = APInt::getMaxValue(Width).zext(2 * Width);
+    Min = APInt::getMinValue(Width).zext(2 * Width);
+    LExt = L.zeroExtend(2 * Width);
+    RExt = R.zeroExtend(2 * Width);
+  }
+  const ConstantRange OverflowRange(Max + 1, Min);
+  return !(LExt.*Op)(RExt).intersectWith(OverflowRange).isEmptySet();
 }
 
 /// print - Print out the bounds to a stream...

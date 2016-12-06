@@ -22,10 +22,12 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
 using namespace llvm;
 
@@ -40,6 +42,7 @@ STATISTIC(NumDeadCases, "Number of switch cases removed");
 STATISTIC(NumSDivs,     "Number of sdiv converted to udiv");
 STATISTIC(NumAShrs,     "Number of ashr converted to lshr");
 STATISTIC(NumSRems,     "Number of srem converted to urem");
+STATISTIC(NumOverflows, "Number of overflow intrinsics eliminated");
 
 namespace {
   class CorrelatedValuePropagation : public FunctionPass {
@@ -57,6 +60,67 @@ namespace {
     }
   };
 }
+
+// copy and paste from InstCombineInternal.h
+static Instruction *CreateOverflowTuple(IntrinsicInst *II, Value *Result,
+                                        Constant *Overflow) {
+  Constant *V[] = {UndefValue::get(Result->getType()), Overflow};
+  StructType *ST = cast<StructType>(II->getType());
+  Constant *Struct = ConstantStruct::get(ST, V);
+  return InsertValueInst::Create(Struct, Result, 0);
+}
+
+static bool processIntrinsic(IntrinsicInst *II, LazyValueInfo *LVI) {
+  Instruction::BinaryOps Opcode;
+  bool NSW;
+  switch (II->getIntrinsicID()) {
+  case Intrinsic::sadd_with_overflow:
+    Opcode = Instruction::Add;
+    NSW = true;
+    break;
+  case Intrinsic::ssub_with_overflow:
+    Opcode = Instruction::Sub;
+    NSW = true;
+    break;
+  case Intrinsic::smul_with_overflow:
+    Opcode = Instruction::Mul;
+   NSW = true;
+    break;
+  case Intrinsic::uadd_with_overflow:
+    Opcode = Instruction::Add;
+    NSW = false;
+    break;
+  case Intrinsic::usub_with_overflow:
+    Opcode = Instruction::Sub;
+    NSW = false;
+    break;
+  case Intrinsic::umul_with_overflow:
+    Opcode = Instruction::Mul;
+    NSW = false;
+    break;
+  default:
+    return false;
+  }
+
+  if (LVI->mayOverflow(II))
+    return false;
+
+  BinaryOperator *NewInst = BinaryOperator::Create(Opcode, II->getOperand(0),
+                                                   II->getOperand(1), "", II);
+  if (NSW)
+    NewInst->setHasNoSignedWrap();
+  else
+   NewInst->setHasNoUnsignedWrap();
+  auto &C = II->getParent()->getContext();
+  Constant *OF = ConstantInt::getFalse(Type::getInt1Ty(C));
+  Instruction *Tup = CreateOverflowTuple(II, NewInst, OF);
+  ReplaceInstWithInst(II, Tup);
+  NumOverflows++;
+
+  return true;
+}
+
+
 
 char CorrelatedValuePropagation::ID = 0;
 INITIALIZE_PASS_BEGIN(CorrelatedValuePropagation, "correlated-propagation",
@@ -501,6 +565,13 @@ static bool runImpl(Function &F, LazyValueInfo *LVI) {
         BBChanged |= processMemAccess(II, LVI);
         break;
       case Instruction::Call:
+        if (IntrinsicInst *Intrinsic = dyn_cast<IntrinsicInst>(II)) {
+          bool result = processIntrinsic(Intrinsic, LVI);
+          BBChanged |= result;
+          if (result)
+            break;
+        }
+      // FALLTHROUGH
       case Instruction::Invoke:
         BBChanged |= processCallSite(CallSite(II), LVI);
         break;

@@ -483,6 +483,10 @@ namespace {
     void threadEdgeImpl(BasicBlock *OldSucc,BasicBlock *NewSucc);
 
     friend struct LVIValueHandle;
+
+//    LazyValueInfoCache(AssumptionCache *AC, const DataLayout &DL,
+  //                     DominatorTree *DT = nullptr)
+    //    : AC(AC), DL(DL), DT(DT) {}
   };
 }
 
@@ -1545,6 +1549,18 @@ void LazyValueInfoImpl::threadEdge(BasicBlock *PredBB, BasicBlock *OldSucc,
 //                            LazyValueInfo Impl
 //===----------------------------------------------------------------------===//
 
+/// This lazily constructs the LazyValueInfoCache.
+static LazyValueInfoImpl &getCache(void *&PImpl, AssumptionCache *AC,
+                                    const DataLayout *DL,
+                                    DominatorTree *DT = nullptr) {
+  if (!PImpl) {
+    assert(DL && "getCache() called with a null DataLayout");
+    PImpl = new LazyValueInfoImpl(AC, *DL, DT);
+  }
+//  return *static_cast<LazyValueInfoCache*>(PImpl);
+  return *static_cast<LazyValueInfoImpl*>(PImpl);
+}
+
 /// This lazily constructs the LazyValueInfoImpl.
 static LazyValueInfoImpl &getImpl(void *&PImpl, AssumptionCache *AC,
                                   const DataLayout *DL,
@@ -1669,6 +1685,64 @@ Constant *LazyValueInfo::getConstantOnEdge(Value *V, BasicBlock *FromBB,
       return ConstantInt::get(V->getContext(), *SingleVal);
   }
   return nullptr;
+}
+
+bool LazyValueInfo::mayOverflow(IntrinsicInst *I) {
+  BasicBlock *BB = I->getParent();
+  const DataLayout &DL = BB->getModule()->getDataLayout();
+  LVILatticeVal L = getCache(PImpl, AC, &DL, DT).
+    getValueInBlock(I->getOperand(0), BB, nullptr);
+  LVILatticeVal R = getCache(PImpl, AC, &DL, DT).
+    getValueInBlock(I->getOperand(1), BB, nullptr);
+
+  ConstantRange LCR(1), RCR(1);
+  if (L.isUndefined() || R.isUndefined())
+    return false;
+  if (L.isConstant()) {
+    if (ConstantInt *CI = dyn_cast<ConstantInt>(L.getConstant()))
+      LCR = ConstantRange(CI->getValue());
+    else
+      return true;
+  } else {
+    if (L.isConstantRange())
+      LCR = L.getConstantRange();
+    else
+      return true;
+  }
+  if (R.isConstant()) {
+    if (ConstantInt *CI = dyn_cast<ConstantInt>(R.getConstant()))
+      RCR = ConstantRange(CI->getValue());
+    else
+      return true;
+  } else {
+    if (R.isConstantRange())
+      RCR = R.getConstantRange();
+    else
+      return true;
+  }
+
+  switch (I->getIntrinsicID()) {
+  case Intrinsic::sadd_with_overflow:
+    return ConstantRange::mayOverflow(LCR, RCR, &ConstantRange::add,
+                                      /*signed=*/true);
+  case Intrinsic::ssub_with_overflow:
+    return ConstantRange::mayOverflow(LCR, RCR, &ConstantRange::sub,
+                                      /*signed=*/true);
+  case Intrinsic::smul_with_overflow:
+    return ConstantRange::mayOverflow(LCR, RCR, &ConstantRange::multiply,
+                                      /*signed=*/true);
+  case Intrinsic::uadd_with_overflow:
+    return ConstantRange::mayOverflow(LCR, RCR, &ConstantRange::add,
+                                      /*signed=*/false);
+  case Intrinsic::usub_with_overflow:
+    return ConstantRange::mayOverflow(LCR, RCR, &ConstantRange::sub,
+                                      /*signed=*/false);
+  case Intrinsic::umul_with_overflow:
+    return ConstantRange::mayOverflow(LCR, RCR, &ConstantRange::multiply,
+                                      /*signed=*/false);
+  default:
+    llvm_unreachable("expected overflow inst");
+  }
 }
 
 static LazyValueInfo::Tristate getPredicateResult(unsigned Pred, Constant *C,

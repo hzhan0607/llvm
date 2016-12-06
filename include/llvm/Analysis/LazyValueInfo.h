@@ -25,6 +25,7 @@ namespace llvm {
   class DataLayout;
   class DominatorTree;
   class Instruction;
+  class IntrinsicInst;
   class TargetLibraryInfo;
   class Value;
 
@@ -90,6 +91,9 @@ public:
   /// constant on the specified edge.  Return null if not.
   Constant *getConstantOnEdge(Value *V, BasicBlock *FromBB, BasicBlock *ToBB,
                               Instruction *CxtI = nullptr);
+
+  // Return false if we can prove that overflow does not occur
+  bool mayOverflow(IntrinsicInst *I);
 
   /// Inform the analysis cache that we have threaded an edge from
   /// PredBB to OldSucc to be from PredBB to NewSucc instead.

@@ -211,6 +211,8 @@ struct CFGSimplifyPass : public FunctionPass {
     initializeCFGSimplifyPassPass(*PassRegistry::getPassRegistry());
   }
   bool runOnFunction(Function &F) override {
+    DEBUG(dbgs() << "call simplifyCFG\n");
+
     if (skipFunction(F) || (PredicateFtor && !PredicateFtor(F)))
       return false;
 

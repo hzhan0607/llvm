@@ -890,6 +890,8 @@ static bool CombineUAddWithOverflow(CmpInst *CI) {
     assert(*AddI->user_begin() == CI && "expected!");
 #endif
 
+  DEBUG(dbgs() << "add overflow function call information here\n");
+
   Module *M = CI->getModule();
   Value *F = Intrinsic::getDeclaration(M, Intrinsic::uadd_with_overflow, Ty);
 

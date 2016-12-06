@@ -318,6 +318,13 @@ public:
   ///
   ConstantRange inverse() const;
 
+  typedef ConstantRange
+    (ConstantRange::*ConstantRangeOp)(const ConstantRange &) const;
+
+  // Return false if we can prove that overflow does not occur
+  static bool mayOverflow(const ConstantRange &L, const ConstantRange &R,
+                          ConstantRangeOp Op, bool Signed);
+
   /// Print out the bounds to a stream.
   ///
   void print(raw_ostream &OS) const;
