@@ -1,15 +1,17 @@
 ; RUN: opt < %s -correlated-propagation -instcombine -simplifycfg -S | FileCheck %s
 
-; CHECK-NOT: sadd.with.overflow
 
+@.src = private unnamed_addr constant [10 x i8] c"mytest2.c\00", align 1
+@0 = private unnamed_addr constant { i16, i16, [6 x i8] } { i16 0, i16 11, [6 x i8] c"'int'\00" }
+@1 = private unnamed_addr global { { [10 x i8]*, i32, i32 }, { i16, i16, [6 x i8] }* } { { [10 x i8]*, i32, i32 } { [10 x i8]* @.src, i32 5, i32 12 }, { i16, i16, [6 x i8] }* @0 }
+@2 = private unnamed_addr global { { [10 x i8]*, i32, i32 }, { i16, i16, [6 x i8] }* } { { [10 x i8]*, i32, i32 } { [10 x i8]* @.src, i32 11, i32 12 }, { i16, i16, [6 x i8] }* @0 }
+
+; CHECK-NOT: sadd.with.overflow
 ; int add(int a, int b, int d) {
 ;   a = (a < INT_MAX/2 ? INT_MAX-1: 1);
 ;   return a + 1;
 ; }
 
-@.src = private unnamed_addr constant [10 x i8] c"mytest2.c\00", align 1
-@0 = private unnamed_addr constant { i16, i16, [6 x i8] } { i16 0, i16 11, [6 x i8] c"'int'\00" }
-@1 = private unnamed_addr global { { [10 x i8]*, i32, i32 }, { i16, i16, [6 x i8] }* } { { [10 x i8]*, i32, i32 } { [10 x i8]* @.src, i32 5, i32 12 }, { i16, i16, [6 x i8] }* @0 }
 
 ; Function Attrs: nounwind uwtable
 define i32 @add(i32 %a, i32 %b, i32 %d) local_unnamed_addr #0 {
@@ -30,7 +32,35 @@ cont2:                                            ; preds = %entry, %handler.add
   ret i32 %1
 }
 
+; I am still working on modifying your previous patch, looks like such simple
+; case that should be covered by constant range analysis, but failed to optimize
+; the overflow check
+
 ; CHECK: sadd.with.overflow
+; int add2(int a, int b, int d) {
+;   a = (a < INT_MAX/2 ? a: 1);
+;   b = (a < INT_MAX/2 ? b: 1);
+;   return a + b;
+; }
+; Function Attrs: nounwind uwtable
+define i32 @add2(i32 %a, i32 %b, i32 %d) local_unnamed_addr #0 {
+entry:
+  %cmp = icmp slt i32 %a, 1073741823
+  %cond = select i1 %cmp, i32 %a, i32 1
+  %0 = tail call { i32, i1 } @llvm.sadd.with.overflow.i32(i32 %cond, i32 %b)
+  %1 = extractvalue { i32, i1 } %0, 0
+  %2 = extractvalue { i32, i1 } %0, 1
+  br i1 %2, label %handler.add_overflow, label %cont8, !prof !1, !nosanitize !2
+
+handler.add_overflow:                             ; preds = %entry
+  %3 = zext i32 %cond to i64, !nosanitize !2
+  %4 = zext i32 %b to i64, !nosanitize !2
+  tail call void @__ubsan_handle_add_overflow(i8* bitcast ({ { [10 x i8]*, i32, i32 }, { i16, i16, [6 x i8] }* }* @2 to i8*), i64 %3, i64 %4) #3, !nosanitize !2
+  br label %cont8, !nosanitize !2
+
+cont8:                                            ; preds = %entry, %handler.add_overflow
+  ret i32 %1
+}
 
 ; Function Attrs: nounwind readnone
 declare { i32, i1 } @llvm.sadd.with.overflow.i32(i32, i32) #1
