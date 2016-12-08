@@ -1,11 +1,6 @@
-; RUN: opt -S -O3 < %s | FileCheck %s
+; RUN: opt -S -O3 < %s -correlated-propagation -instcombine -simplifycfg | FileCheck %s
 
-; CHECK: llvm.sadd.with.overflow.i32
-
-; ModuleID = 'mytest.c'
-source_filename = "mytest.c"
-target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
-target triple = "x86_64-unknown-linux-gnu"
+; CHECK-NOT: sadd.with.overflow
 
 @.src = private unnamed_addr constant [9 x i8] c"mytest.c\00", align 1
 @0 = private unnamed_addr constant { i16, i16, [6 x i8] } { i16 0, i16 11, [6 x i8] c"'int'\00" }
@@ -40,6 +35,8 @@ cont:                                             ; preds = %handler.add_overflo
   %8 = load i32, i32* %d.addr, align 4
   ret i32 %8
 }
+
+; CHECK: sadd.with.overflow
 
 ; Function Attrs: nounwind readnone
 declare { i32, i1 } @llvm.sadd.with.overflow.i32(i32, i32) #1
