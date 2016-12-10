@@ -29,6 +29,8 @@
 #include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
+#define DEBUG_TYPE "overflow"
+
 /// Initialize a full (the default) or empty set for the specified type.
 ///
 ConstantRange::ConstantRange(uint32_t BitWidth, bool Full) {
@@ -918,6 +920,7 @@ ConstantRange ConstantRange::inverse() const {
 //
 bool ConstantRange::mayOverflow(const ConstantRange &L, const ConstantRange &R,
                                 ConstantRangeOp Op, bool Signed) {
+  DEBUG(dbgs() << "calling mayOverflow check\n");
   const unsigned Width = L.getBitWidth();
   APInt Max, Min;
   ConstantRange LExt(1), RExt(1);
@@ -933,7 +936,9 @@ bool ConstantRange::mayOverflow(const ConstantRange &L, const ConstantRange &R,
     RExt = R.zeroExtend(2 * Width);
   }
   const ConstantRange OverflowRange(Max + 1, Min);
-  return !(LExt.*Op)(RExt).intersectWith(OverflowRange).isEmptySet();
+  bool result =  !(LExt.*Op)(RExt).intersectWith(OverflowRange).isEmptySet();
+  DEBUG(dbgs() << "result : " << result << "end\n");
+  return result;
 }
 
 /// print - Print out the bounds to a stream...
