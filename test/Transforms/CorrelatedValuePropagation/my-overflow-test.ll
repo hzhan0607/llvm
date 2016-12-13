@@ -1,5 +1,12 @@
 ; RUN: opt < %s -correlated-propagation -instcombine -simplifycfg -S | FileCheck %s
 
+; int func(int x, int y, int z) {
+;   if ((x < 100 && x > 0 ) && (y > 0 && y < 100) && (z > 0 && z < 100))
+;     return x+y+z;
+;   else
+;     return 0;
+; }
+
 @.src = private unnamed_addr constant [19 x i8] c"my-overflow-test.c\00", align 1
 @0 = private unnamed_addr constant { i16, i16, [6 x i8] } { i16 0, i16 11, [6 x i8] c"'int'\00" }
 @1 = private unnamed_addr global { { [19 x i8]*, i32, i32 }, { i16, i16, [6 x i8] }* } { { [19 x i8]*, i32, i32 } { [19 x i8]* @.src, i32 5, i32 13 }, { i16, i16, [6 x i8] }* @0 }
