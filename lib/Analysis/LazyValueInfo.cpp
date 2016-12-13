@@ -1695,10 +1695,13 @@ bool LazyValueInfo::mayOverflow(IntrinsicInst *I) {
   LVILatticeVal R = getCache(PImpl, AC, &DL, DT).
     getValueInBlock(I->getOperand(1), BB, nullptr);
 
+  DEBUG(dbgs() << "lazyValueInfo get constant range\n");
   ConstantRange LCR(1), RCR(1);
-  if (L.isUndefined() || R.isUndefined())
-    return false;
+  if (L.isUndefined() || R.isUndefined()) {
+    DEBUG(dbgs() << "lazyValueInfo L or R undefined\n");
+    return false; }
   if (L.isConstant()) {
+  DEBUG(dbgs() << "lazyValueInfo L constant\n");
     if (ConstantInt *CI = dyn_cast<ConstantInt>(L.getConstant()))
       LCR = ConstantRange(CI->getValue());
     else
@@ -1710,6 +1713,7 @@ bool LazyValueInfo::mayOverflow(IntrinsicInst *I) {
       return true;
   }
   if (R.isConstant()) {
+  DEBUG(dbgs() << "lazyValueInfo R constant\n");
     if (ConstantInt *CI = dyn_cast<ConstantInt>(R.getConstant()))
       RCR = ConstantRange(CI->getValue());
     else
@@ -1721,6 +1725,7 @@ bool LazyValueInfo::mayOverflow(IntrinsicInst *I) {
       return true;
   }
 
+  DEBUG(dbgs() << "lazyValueInfo parse to instrinsic\n");
   switch (I->getIntrinsicID()) {
   case Intrinsic::sadd_with_overflow:
     return ConstantRange::mayOverflow(LCR, RCR, &ConstantRange::add,
